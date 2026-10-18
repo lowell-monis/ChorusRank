@@ -1,0 +1,56 @@
+services:
+  # Continuous streaming daemon (runs in background)
+  streamer:
+    build: .
+    container_name: chorusrank-streamer
+    restart: unless-stopped
+    command: ["python", "scripts/run_stream_collection.py"]
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  # Targeted historical API search collector (on-demand)
+  api-collector:
+    build: .
+    container_name: chorusrank-api-collector
+    command: ["python", "scripts/run_api_collection.py"]
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    profiles:
+      - tools
+
+  # Account profile metadata enricher (on-demand / batch)
+  enricher:
+    build: .
+    container_name: chorusrank-enricher
+    command: ["python", "scripts/run_enrichment.py"]
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    profiles:
+      - tools
+
+  # Longitudinal account status checker (daily / scheduled)
+  rechecker:
+    build: .
+    container_name: chorusrank-rechecker
+    command: ["python", "scripts/run_longitudinal_check.py"]
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    profiles:
+      - tools
+
+  # Dataset statistics reporter for intermediate report
+  summarizer:
+    build: .
+    container_name: chorusrank-summarizer
+    command: ["python", "scripts/summarize_dataset.py"]
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    profiles:
+      - tools
