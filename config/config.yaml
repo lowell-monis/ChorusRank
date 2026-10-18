@@ -1,0 +1,40 @@
+# ChorusRank Configuration File
+
+collection:
+  # AT Protocol / Bluesky Jetstream WebSocket settings
+  jetstream:
+    uri: "wss://jetstream2.us-east.bsky.network/subscribe"
+    wanted_collections:
+      - "app.bsky.feed.post"
+      - "app.bsky.feed.repost"
+    sample_modulo: 10       # Hash modulo for deterministic DID sampling (1 = 100%, 10 = 10%)
+    batch_flush_size: 1000   # Flush to disk after N events
+
+  # REST API Targeted Historical Collection settings
+  api:
+    public_xrpc: "https://public.api.bsky.app/xrpc"
+    target_queries:
+      - "airdrop"
+      - "claim bonus"
+      - "join telegram"
+      - "free mint"
+      - "dm to recover"
+      - "crypto giveaway"
+      - "presale"
+      - "exclusive reward"
+    posts_per_query: 2000
+    page_limit: 100
+
+enrichment:
+  batch_size: 25            # Maximum DIDs allowed per app.bsky.actor.getProfiles call
+  delay_between_batches: 0.15 # Seconds to sleep between batch calls to stay within rate limits
+
+recheck:
+  batch_size: 25
+  delay_sec: 0.2
+
+storage:
+  raw_dir: "data/raw"
+  enriched_dir: "data/enriched"
+  processed_dir: "data/processed"
+  duckdb_path: "data/chorusrank.duckdb"
