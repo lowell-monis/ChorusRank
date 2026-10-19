@@ -108,6 +108,8 @@ class JetstreamStreamCollector:
                             reply_root_uri=root_uri,
                             reposted_uri=reposted_uri,
                             facets=record.get("facets", []),
+                            stratum="baseline",
+                            query_tag="jetstream_sampled",
                         )
 
                         event_buffer.append(event_rec)

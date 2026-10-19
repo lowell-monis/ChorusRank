@@ -112,6 +112,7 @@ class BlueskyAPICollector:
                     reply_root_uri=root_uri,
                     reposted_uri=None,
                     facets=record_content.get("facets", []),
+                    stratum="targeted",
                     query_tag=query,
                 )
                 batch_records.append(rec)

@@ -89,6 +89,7 @@ class ProfileEnricher:
                     posts_count=p.get("postsCount", 0),
                     has_avatar=bool(p.get("avatar")),
                     has_banner=bool(p.get("banner")),
+                    labels=p.get("labels", []),
                     enriched_at=now_iso,
                 )
                 batch_records.append(rec)
@@ -97,15 +98,15 @@ class ProfileEnricher:
 
             # Flush periodically
             if len(batch_records) >= 500:
-                saved_path = self.storage.save_profiles(batch_records)
-                print(f"[Profile Enricher] Saved {len(batch_records)} profiles to {saved_path.name}")
+                self.storage.save_profiles(batch_records)
+                print(f"[Profile Enricher] Saved batch of {len(batch_records)} profiles (Total: {enriched_count})")
                 batch_records = []
 
             time.sleep(self.delay_sec)
 
         if batch_records:
-            saved_path = self.storage.save_profiles(batch_records)
-            print(f"[Profile Enricher] Final save: {len(batch_records)} profiles to {saved_path.name}")
+            self.storage.save_profiles(batch_records)
+            print(f"[Profile Enricher] Final save: {len(batch_records)} profiles")
 
         print(f"[Profile Enricher] Enrichment complete. Successfully profiled {enriched_count} accounts.")
         return enriched_count

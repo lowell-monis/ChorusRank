@@ -21,6 +21,7 @@ class RawEventRecord(BaseModel):
     reply_root_uri: Optional[str] = None
     reposted_uri: Optional[str] = None
     facets: Optional[List[dict]] = Field(default_factory=list)
+    stratum: str = "targeted"  # "targeted" (search queries) or "baseline" (sampled firehose)
     query_tag: Optional[str] = None
     raw_payload: Optional[dict] = None
 
@@ -37,6 +38,7 @@ class ProfileMetadata(BaseModel):
     posts_count: int = 0
     has_avatar: bool = False
     has_banner: bool = False
+    labels: Optional[List[dict]] = Field(default_factory=list)  # Captured labeler tags from getProfiles
     enriched_at: str
 
 
@@ -44,7 +46,20 @@ class AccountStatusRecord(BaseModel):
     """Schema for longitudinal takedown & suspension checks."""
     did: str
     handle: Optional[str] = None
-    status: str  # "ACTIVE", "TAKEDOWN", "DEACTIVATED", "NOT_FOUND", "ERROR"
+    status: str  # "ACTIVE", "TAKEDOWN", "DEACTIVATED", "NOT_FOUND", "UNRECOGNIZED_ERROR", "NETWORK_ERROR"
     status_code: Optional[int] = 200
+    error_name: Optional[str] = None
     error_message: Optional[str] = None
+    raw_error: Optional[dict] = None  # Preserves full payload to avoid silent misclassification
     checked_at: str
+
+
+class GoldLabelRecord(BaseModel):
+    """Schema for hand-labeled gold evaluation set."""
+    did: str
+    handle: Optional[str] = None
+    gold_label: str  # "INAUTHENTIC_COORDINATED", "ORGANIC_BENIGN", "UNCERTAIN"
+    annotator_id: str
+    sample_stratum: str  # "targeted" or "baseline"
+    evidence_notes: Optional[str] = None
+    labeled_at: str
