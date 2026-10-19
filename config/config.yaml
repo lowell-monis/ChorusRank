@@ -12,16 +12,15 @@ collection:
 
   # REST API Targeted Historical Collection settings
   api:
-    public_xrpc: "https://public.api.bsky.app/xrpc"
+    public_xrpc: "https://api.bsky.app/xrpc"
     target_queries:
-      - "airdrop"
-      - "claim bonus"
+      - "t.me"
+      - "telegram"
       - "join telegram"
-      - "free mint"
+      - "airdrop"
+      - "presale"
       - "dm to recover"
       - "crypto giveaway"
-      - "presale"
-      - "exclusive reward"
     posts_per_query: 2000
     page_limit: 100
 

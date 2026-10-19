@@ -18,7 +18,7 @@ class BlueskyAPICollector:
 
     def __init__(
         self,
-        base_url: str = "https://public.api.bsky.app/xrpc",
+        base_url: str = "https://api.bsky.app/xrpc",
         storage: Optional[ChorusStorage] = None,
         delay_sec: float = 0.15,
     ):

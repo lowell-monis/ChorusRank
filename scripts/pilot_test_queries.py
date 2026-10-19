@@ -11,7 +11,7 @@ import requests
 def run_pilot(queries: List[str], limit: int = 50) -> None:
     session = requests.Session()
     session.headers.update({"User-Agent": "ChorusRank-Pilot/0.1.0"})
-    url = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+    url = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
 
     print("\n" + "=" * 70)
     print("                 CHORUSRANK QUERY PILOT INSPECTION")
@@ -51,7 +51,8 @@ def run_pilot(queries: List[str], limit: int = 50) -> None:
         print("  • Sample Post Previews:")
         for i, text in enumerate(texts[:3]):
             clean_snippet = text.replace("\n", " ")[:90]
-            print(f"    [{i+1}] \"{clean_snippet}...\"")
+            safe_snippet = clean_snippet.encode("ascii", errors="replace").decode("ascii")
+            print(f"    [{i+1}] \"{safe_snippet}...\"")
 
     print("\n" + "=" * 70 + "\n")
 
