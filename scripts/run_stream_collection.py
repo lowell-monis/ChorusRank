@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from chorusrank.collection.stream_collector import JetstreamStreamCollector
-from chorusrank.storage.db import ChorusStorage
+from chorusrank.storage import get_storage
 
 
 async def async_main() -> None:
@@ -24,7 +24,7 @@ async def async_main() -> None:
             cfg = yaml.safe_load(f)
             sample_modulo = cfg.get("collection", {}).get("jetstream", {}).get("sample_modulo", sample_modulo)
 
-    storage = ChorusStorage()
+    storage = get_storage()
     streamer = JetstreamStreamCollector(sample_modulo=sample_modulo, storage=storage)
 
     try:

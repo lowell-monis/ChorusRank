@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from chorusrank.collection.api_collector import BlueskyAPICollector
-from chorusrank.storage.db import ChorusStorage
+from chorusrank.storage import get_storage
 
 
 def main() -> None:
@@ -30,7 +30,7 @@ def main() -> None:
     if not queries:
         queries = ["airdrop", "claim bonus", "join telegram"]
 
-    storage = ChorusStorage()
+    storage = get_storage()
     collector = BlueskyAPICollector(storage=storage)
 
     for q in queries:

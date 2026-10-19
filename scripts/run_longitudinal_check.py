@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from chorusrank.collection.recheck import LongitudinalRechecker
-from chorusrank.storage.db import ChorusStorage
+from chorusrank.storage import get_storage
 
 
 def main() -> None:
@@ -12,7 +12,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Max accounts to check in this pass")
     args = parser.parse_args()
 
-    storage = ChorusStorage()
+    storage = get_storage()
     rechecker = LongitudinalRechecker(storage=storage)
     rechecker.run_daily_recheck(sample_limit=args.limit)
 

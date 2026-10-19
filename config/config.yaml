@@ -34,6 +34,8 @@ recheck:
   delay_sec: 0.2
 
 storage:
+  backend: "mongodb"
+  mongo_db_name: "chorusrank"
   raw_dir: "data/raw"
   enriched_dir: "data/enriched"
   processed_dir: "data/processed"
