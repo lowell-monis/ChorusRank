@@ -36,6 +36,7 @@ def main() -> None:
     print(f"Profiles Enriched:       {enriched_dids:,}")
     if isinstance(storage, MongoStorage):
         print(f"Takedowns Detected:      {summary.get('takedowns_detected', 0):,}")
+        print(f"Deleted Posts Detected:  {summary.get('deleted_posts_detected', 0):,}")
     print(f"Earliest Event:          {summary.get('earliest_event', 'N/A')}")
     print(f"Latest Event:            {summary.get('latest_event', 'N/A')}")
 

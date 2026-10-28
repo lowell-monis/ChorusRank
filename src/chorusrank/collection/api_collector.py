@@ -114,6 +114,13 @@ class BlueskyAPICollector:
                     facets=record_content.get("facets", []),
                     stratum="targeted",
                     query_tag=query,
+                    post_uri=uri,
+                    like_count=p.get("likeCount", 0),
+                    repost_count=p.get("repostCount", 0),
+                    reply_count=p.get("replyCount", 0),
+                    quote_count=p.get("quoteCount", 0),
+                    is_deleted=False,
+                    last_checked_at=now_iso,
                 )
                 batch_records.append(rec)
 

@@ -23,6 +23,13 @@ class RawEventRecord(BaseModel):
     facets: Optional[List[dict]] = Field(default_factory=list)
     stratum: str = "targeted"  # "targeted" (search queries) or "baseline" (sampled firehose)
     query_tag: Optional[str] = None
+    post_uri: Optional[str] = None  # Full AT-URI (at://did/app.bsky.feed.post/rkey)
+    like_count: Optional[int] = 0
+    repost_count: Optional[int] = 0
+    reply_count: Optional[int] = 0
+    quote_count: Optional[int] = 0
+    is_deleted: Optional[bool] = False
+    last_checked_at: Optional[str] = None
     raw_payload: Optional[dict] = None
 
 

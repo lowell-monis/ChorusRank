@@ -57,6 +57,8 @@ class MongoStorage:
             self.events_col.create_index("created_at")
             self.events_col.create_index("collection")
             self.events_col.create_index("query_tag")
+            self.events_col.create_index("post_uri")
+            self.events_col.create_index("is_deleted")
 
             # Profiles index
             self.profiles_col.create_index("did", unique=True)
@@ -131,12 +133,47 @@ class MongoStorage:
         """Fetch all DIDs that already have profile metadata."""
         return set(self.profiles_col.distinct("did"))
 
+    def get_post_uris(self, sample_limit: Optional[int] = None) -> List[str]:
+        """Fetch distinct post URIs for original posts that are not marked as deleted."""
+        query = {"collection": "app.bsky.feed.post", "post_uri": {"$ne": None}, "is_deleted": {"$ne": True}}
+        cursor = self.events_col.find(query, {"post_uri": 1})
+        if sample_limit:
+            cursor = cursor.limit(sample_limit)
+        return [doc["post_uri"] for doc in cursor if "post_uri" in doc]
+
+    def update_post_metrics(self, updates: List[Dict[str, Any]]) -> int:
+        """Batch update like/repost counts and deletion status for posts."""
+        if not updates:
+            return 0
+        operations = []
+        for u in updates:
+            post_uri = u.get("post_uri")
+            if not post_uri:
+                continue
+            update_data = {
+                "like_count": u.get("like_count", 0),
+                "repost_count": u.get("repost_count", 0),
+                "reply_count": u.get("reply_count", 0),
+                "quote_count": u.get("quote_count", 0),
+                "is_deleted": u.get("is_deleted", False),
+                "last_checked_at": u.get("last_checked_at"),
+            }
+            operations.append(
+                UpdateOne({"post_uri": post_uri}, {"$set": update_data})
+            )
+        try:
+            res = self.events_col.bulk_write(operations, ordered=False)
+            return (res.modified_count or 0) + (res.upserted_count or 0)
+        except BulkWriteError as bwe:
+            return bwe.details.get("nModified", 0)
+
     def get_dataset_summary(self) -> Dict[str, Any]:
         """Generate high-level dataset metrics for the intermediate report."""
         total_events = self.events_col.estimated_document_count()
         unique_dids = len(self.get_distinct_dids())
         profiles_count = self.profiles_col.estimated_document_count()
         takedowns_count = self.status_col.count_documents({"status": {"$in": ["TAKEDOWN", "DEACTIVATED"]}})
+        deleted_posts_count = self.events_col.count_documents({"is_deleted": True})
 
         earliest_doc = self.events_col.find_one(sort=[("created_at", 1)])
         latest_doc = self.events_col.find_one(sort=[("created_at", -1)])
@@ -153,6 +190,7 @@ class MongoStorage:
             "unique_dids": unique_dids,
             "profiles_enriched": profiles_count,
             "takedowns_detected": takedowns_count,
+            "deleted_posts_detected": deleted_posts_count,
             "earliest_event": earliest_doc.get("created_at") if earliest_doc else None,
             "latest_event": latest_doc.get("created_at") if latest_doc else None,
         }

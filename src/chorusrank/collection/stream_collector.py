@@ -110,6 +110,13 @@ class JetstreamStreamCollector:
                             facets=record.get("facets", []),
                             stratum="baseline",
                             query_tag="jetstream_sampled",
+                            post_uri=f"at://{did}/{collection}/{rkey}" if collection == "app.bsky.feed.post" else None,
+                            like_count=0,
+                            repost_count=0,
+                            reply_count=0,
+                            quote_count=0,
+                            is_deleted=False,
+                            last_checked_at=now_iso,
                         )
 
                         event_buffer.append(event_rec)
