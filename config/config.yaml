@@ -1,28 +1,60 @@
 # ChorusRank Configuration File
 
 collection:
-  # AT Protocol / Bluesky Jetstream WebSocket settings
+  # REST API Targeted Historical Collection settings
+  api:
+    public_xrpc: "https://api.bsky.app/xrpc"
+    target_queries:
+      # High-signal single tokens
+      - "airdrop"
+      - "presale"
+      - "giveaway"
+      - "whitelist"
+      - "metamask"
+      - "coinbase"
+      - "binance"
+      - "wallet"
+      - "recovery"
+      - "recover"
+      - "telegram"
+      - "yoroi"
+      - "wagmi"
+      - "safu"
+      - "dyor"
+      - "crypto"
+      - "$ETH"
+      - "$SOL"
+      - "$XRP"
+      - "Mr Beast"
+      - "white paper"
+      # High-signal combinatorial pairs & phrases
+      - "crypto giveaway"
+      - "wallet recovery"
+      - "coinbase recover"
+      - "drop address"
+      - "presale whitelist"
+      - "presale event"
+      - "airdrop free"
+      - "urgent update"
+      - "limited time"
+      - "limited time only"
+      - "metamask wallet"
+      - "binance giveaway"
+      - "telegram gem"
+      - "x gem"
+    posts_per_query: 3000
+    page_limit: 100
+    require_english: true
+    require_text_heavy: true
+
+  # AT Protocol / Bluesky Jetstream WebSocket settings (for prototype phase)
   jetstream:
     uri: "wss://jetstream2.us-east.bsky.network/subscribe"
     wanted_collections:
       - "app.bsky.feed.post"
       - "app.bsky.feed.repost"
-    sample_modulo: 10       # Hash modulo for deterministic DID sampling (1 = 100%, 10 = 10%)
-    batch_flush_size: 1000   # Flush to disk after N events
-
-  # REST API Targeted Historical Collection settings
-  api:
-    public_xrpc: "https://api.bsky.app/xrpc"
-    target_queries:
-      - "t.me"
-      - "telegram"
-      - "join telegram"
-      - "airdrop"
-      - "presale"
-      - "dm to recover"
-      - "crypto giveaway"
-    posts_per_query: 2000
-    page_limit: 100
+    sample_modulo: 10
+    batch_flush_size: 1000
 
 enrichment:
   batch_size: 25            # Maximum DIDs allowed per app.bsky.actor.getProfiles call
@@ -30,11 +62,11 @@ enrichment:
 
 recheck:
   batch_size: 25
-  delay_sec: 0.2
+  delay_sec: 0.15
 
 storage:
   backend: "mongodb"
-  mongo_db_name: "chorusrank"
+  mongo_db_name: "ChorusRank"
   raw_dir: "data/raw"
   enriched_dir: "data/enriched"
   processed_dir: "data/processed"
