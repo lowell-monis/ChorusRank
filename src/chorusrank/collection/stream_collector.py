@@ -10,8 +10,9 @@ from typing import List, Optional
 
 import websockets
 
+from .api_collector import clean_post_text, extract_entities_and_edges
 from ..storage.schema import RawEventRecord
-from ..storage.db import ChorusStorage
+from ..storage import get_storage
 
 
 class JetstreamStreamCollector:
@@ -23,7 +24,7 @@ class JetstreamStreamCollector:
         wanted_collections: Optional[List[str]] = None,
         sample_modulo: int = 1,  # 1 = 100% of events, 10 = 10% sampling by DID hash
         batch_flush_size: int = 1000,
-        storage: Optional[ChorusStorage] = None,
+        storage=None,
     ):
         self.base_uri = jetstream_uri
         self.wanted_collections = wanted_collections or [
@@ -32,7 +33,7 @@ class JetstreamStreamCollector:
         ]
         self.sample_modulo = max(1, sample_modulo)
         self.batch_flush_size = batch_flush_size
-        self.storage = storage or ChorusStorage()
+        self.storage = storage or get_storage()
         self.running = False
 
     def _should_sample(self, did: str) -> bool:
@@ -82,17 +83,29 @@ class JetstreamStreamCollector:
                             continue
 
                         rkey = commit.get("rkey", "")
-                        record = commit.get("record", {})
+                        record = commit.get("record", {}) or {}
                         now_iso = datetime.now(timezone.utc).isoformat()
 
                         # Parse reply or repost pointers
-                        reply = record.get("reply", {})
+                        reply = record.get("reply", {}) or {}
                         parent_uri = reply.get("parent", {}).get("uri")
                         root_uri = reply.get("root", {}).get("uri")
+                        parent_did = parent_uri.split("/")[2] if parent_uri and parent_uri.startswith("at://") else None
+                        root_did = root_uri.split("/")[2] if root_uri and root_uri.startswith("at://") else None
+
                         reposted_uri = None
+                        reposted_did = None
                         if collection == "app.bsky.feed.repost":
-                            subject = record.get("subject", {})
+                            subject = record.get("subject", {}) or {}
                             reposted_uri = subject.get("uri")
+                            if reposted_uri and reposted_uri.startswith("at://"):
+                                parts = reposted_uri.split("/")
+                                if len(parts) >= 3:
+                                    reposted_did = parts[2]
+
+                        post_text = record.get("text", "")
+                        embed = record.get("embed")
+                        extracted = extract_entities_and_edges(record, embed)
 
                         event_rec = RawEventRecord(
                             event_id=f"{did}_{rkey}",
@@ -102,12 +115,23 @@ class JetstreamStreamCollector:
                             created_at=record.get("createdAt", now_iso),
                             collected_at=now_iso,
                             collection=collection,
-                            text=record.get("text"),
+                            text=post_text,
+                            clean_text=clean_post_text(post_text),
                             langs=record.get("langs", []),
+                            urls=extracted["urls"],
+                            domains=extracted["domains"],
+                            tags=extracted["tags"],
+                            mentions=extracted["mentions"],
                             reply_parent_uri=parent_uri,
+                            reply_parent_did=parent_did,
                             reply_root_uri=root_uri,
+                            reply_root_did=root_did,
+                            quote_uri=extracted["quote_uri"],
+                            quote_did=extracted["quote_did"],
                             reposted_uri=reposted_uri,
+                            reposted_did=reposted_did,
                             facets=record.get("facets", []),
+                            embed=embed,
                             stratum="baseline",
                             query_tag="jetstream_sampled",
                             post_uri=f"at://{did}/{collection}/{rkey}" if collection == "app.bsky.feed.post" else None,
@@ -117,14 +141,15 @@ class JetstreamStreamCollector:
                             quote_count=0,
                             is_deleted=False,
                             last_checked_at=now_iso,
+                            raw_payload=msg,
                         )
 
                         event_buffer.append(event_rec)
                         total_processed += 1
 
                         if len(event_buffer) >= self.batch_flush_size:
-                            saved_path = self.storage.save_raw_events(event_buffer, partition_name="stream")
-                            print(f"[Jetstream Streamer] Flushed {len(event_buffer)} events -> {saved_path.name} (Total: {total_processed})")
+                            res = self.storage.save_raw_events(event_buffer, partition_name="stream")
+                            print(f"[Jetstream Streamer] Flushed {len(event_buffer)} events (Total: {total_processed}, result: {res})")
                             event_buffer = []
 
                         if max_events and total_processed >= max_events:
@@ -138,5 +163,5 @@ class JetstreamStreamCollector:
 
         # Final buffer flush
         if event_buffer:
-            saved_path = self.storage.save_raw_events(event_buffer, partition_name="stream")
-            print(f"[Jetstream Streamer] Final flush: saved {len(event_buffer)} events -> {saved_path.name}")
+            res = self.storage.save_raw_events(event_buffer, partition_name="stream")
+            print(f"[Jetstream Streamer] Final flush: saved {len(event_buffer)} events (Result: {res})")

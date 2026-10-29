@@ -27,11 +27,10 @@ class MongoStorage:
         cert_file_path: Optional[str] = None,
     ):
         self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        self.db_name = db_name or os.getenv("MONGO_DB_NAME", "chorusrank")
+        self.db_name = db_name or os.getenv("MONGO_DB_NAME", "ChorusRank")
         self.cert_file_path = cert_file_path or os.getenv("CERT_FILE_PATH", "")
 
-        client_kwargs: Dict[str, Any] = {}
-
+        client_kwargs: Dict[str, Any] = {"serverSelectionTimeoutMS": 4000}
         if "mongodb+srv://" in self.mongo_uri or "authMechanism=MONGODB-X509" in self.mongo_uri:
             client_kwargs["tls"] = True
             client_kwargs["tlsCAFile"] = certifi.where()
@@ -59,18 +58,29 @@ class MongoStorage:
             self.events_col.create_index("query_tag")
             self.events_col.create_index("post_uri")
             self.events_col.create_index("is_deleted")
+            self.events_col.create_index("domains")
+            self.events_col.create_index("tags")
+            self.events_col.create_index("mentions")
+            self.events_col.create_index("reply_parent_did")
+            self.events_col.create_index("quote_did")
 
             # Profiles index
             self.profiles_col.create_index("did", unique=True)
             self.profiles_col.create_index("followers_count")
+            self.profiles_col.create_index("has_moderation_labels")
+            self.profiles_col.create_index("label_flag_suspend")
+            self.profiles_col.create_index("label_flag_spam")
 
             # Status history index
             self.status_col.create_index([("did", 1), ("checked_at", -1)])
             self.status_col.create_index("status")
+            self.status_col.create_index("label_strict_takedown")
+            self.status_col.create_index("label_broad_inauthentic")
+            self.status_col.create_index("label_category")
         except Exception as e:
             print(f"[MongoStorage] Note on index creation: {e}")
 
-    def save_raw_events(self, events: List[RawEventRecord]) -> int:
+    def save_raw_events(self, events: List[RawEventRecord], **kwargs) -> int:
         """Save a batch of raw events using upsert to avoid duplicate keys."""
         if not events:
             return 0
@@ -91,10 +101,9 @@ class MongoStorage:
             inserted_or_upserted = (res.upserted_count or 0) + (res.modified_count or 0)
             return inserted_or_upserted
         except BulkWriteError as bwe:
-            # Duplicate keys are handled gracefully by ordered=False
             return bwe.details.get("nUpserted", 0)
 
-    def save_profiles(self, profiles: List[ProfileMetadata]) -> int:
+    def save_profiles(self, profiles: List[ProfileMetadata], **kwargs) -> int:
         """Upsert enriched profile records by DID."""
         if not profiles:
             return 0
@@ -116,7 +125,7 @@ class MongoStorage:
         except BulkWriteError as bwe:
             return bwe.details.get("nUpserted", 0)
 
-    def save_status_checks(self, records: List[AccountStatusRecord]) -> int:
+    def save_status_checks(self, records: List[AccountStatusRecord], **kwargs) -> int:
         """Insert longitudinal status checks."""
         if not records:
             return 0
@@ -168,29 +177,36 @@ class MongoStorage:
             return bwe.details.get("nModified", 0)
 
     def get_dataset_summary(self) -> Dict[str, Any]:
-        """Generate high-level dataset metrics for the intermediate report."""
+        """Generate comprehensive dataset metrics across all collections."""
         total_events = self.events_col.estimated_document_count()
         unique_dids = len(self.get_distinct_dids())
         profiles_count = self.profiles_col.estimated_document_count()
-        takedowns_count = self.status_col.count_documents({"status": {"$in": ["TAKEDOWN", "DEACTIVATED"]}})
+        labeled_profiles_count = self.profiles_col.count_documents({"has_moderation_labels": True})
+        
+        strict_takedowns = self.status_col.count_documents({"label_strict_takedown": True})
+        broad_inauthentic = self.status_col.count_documents({"label_broad_inauthentic": True})
         deleted_posts_count = self.events_col.count_documents({"is_deleted": True})
 
         earliest_doc = self.events_col.find_one(sort=[("created_at", 1)])
         latest_doc = self.events_col.find_one(sort=[("created_at", -1)])
 
         posts_count = self.events_col.count_documents({"collection": "app.bsky.feed.post"})
-        reposts_count = self.events_col.count_documents({"collection": "app.bsky.feed.repost"})
+        distinct_domains = len(self.events_col.distinct("domains"))
+        distinct_tags = len(self.events_col.distinct("tags"))
 
         return {
-            "storage_backend": "MongoDB (NoSQL)",
+            "storage_backend": "MongoDB Atlas (NoSQL)",
             "database_name": self.db_name,
             "total_events": total_events,
             "posts_count": posts_count,
-            "reposts_count": reposts_count,
             "unique_dids": unique_dids,
             "profiles_enriched": profiles_count,
-            "takedowns_detected": takedowns_count,
+            "profiles_with_moderation_labels": labeled_profiles_count,
+            "strict_takedowns_detected": strict_takedowns,
+            "broad_inauthentic_detected": broad_inauthentic,
             "deleted_posts_detected": deleted_posts_count,
+            "distinct_external_domains": distinct_domains,
+            "distinct_hashtags": distinct_tags,
             "earliest_event": earliest_doc.get("created_at") if earliest_doc else None,
             "latest_event": latest_doc.get("created_at") if latest_doc else None,
         }

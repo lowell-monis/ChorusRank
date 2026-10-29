@@ -4,27 +4,76 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Dict, Any
 
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from ..storage.schema import ProfileMetadata
-from ..storage.db import ChorusStorage
+from ..storage import get_storage
+
+
+def parse_profile_labels(labels_list: List[dict], account_did: str) -> Dict[str, Any]:
+    """Parse raw AT Protocol moderation labels into multi-column analysis features."""
+    if not labels_list:
+        return {
+            "raw_labels": [],
+            "label_values": [],
+            "label_sources": [],
+            "has_moderation_labels": False,
+            "label_flag_suspend": False,
+            "label_flag_takedown": False,
+            "label_flag_spam": False,
+            "label_flag_warn": False,
+            "label_flag_hide": False,
+            "is_self_labeled": False,
+        }
+
+    label_values: List[str] = []
+    label_sources: List[str] = []
+    is_self = False
+
+    for lbl in labels_list:
+        if not isinstance(lbl, dict):
+            continue
+        val = lbl.get("val", "")
+        src = lbl.get("src", "")
+        if val:
+            label_values.append(val)
+        if src:
+            label_sources.append(src)
+        if src == account_did:
+            is_self = True
+
+    lower_vals = [v.lower() for v in label_values]
+    joined = " ".join(lower_vals)
+
+    return {
+        "raw_labels": labels_list,
+        "label_values": label_values,
+        "label_sources": list(dict.fromkeys(label_sources)),
+        "has_moderation_labels": len(label_values) > 0,
+        "label_flag_suspend": "!suspend" in joined or "suspend" in joined,
+        "label_flag_takedown": "!takedown" in joined or "takedown" in joined,
+        "label_flag_spam": "spam" in joined or "scam" in joined,
+        "label_flag_warn": "!warn" in joined or "warn" in joined,
+        "label_flag_hide": "!hide" in joined or "hide" in joined,
+        "is_self_labeled": is_self,
+    }
 
 
 class ProfileEnricher:
-    """Enriches raw DIDs with account-level metadata, age, and social graph metrics."""
+    """Enriches raw DIDs with account-level metadata, age, and moderation labels."""
 
     def __init__(
         self,
         base_url: str = "https://public.api.bsky.app/xrpc",
-        storage: Optional[ChorusStorage] = None,
+        storage=None,
         batch_size: int = 25,
         delay_sec: float = 0.15,
     ):
         self.base_url = base_url.rstrip("/")
-        self.storage = storage or ChorusStorage()
+        self.storage = storage or get_storage()
         self.batch_size = min(25, max(1, batch_size))  # Max allowed by XRPC is 25
         self.delay_sec = delay_sec
         self.session = requests.Session()
@@ -78,8 +127,12 @@ class ProfileEnricher:
                 continue
 
             for p in raw_profiles:
+                account_did = p.get("did", "")
+                raw_labels = p.get("labels", []) or []
+                label_info = parse_profile_labels(raw_labels, account_did)
+
                 rec = ProfileMetadata(
-                    did=p.get("did", ""),
+                    did=account_did,
                     handle=p.get("handle", ""),
                     display_name=p.get("displayName"),
                     description=p.get("description"),
@@ -89,8 +142,18 @@ class ProfileEnricher:
                     posts_count=p.get("postsCount", 0),
                     has_avatar=bool(p.get("avatar")),
                     has_banner=bool(p.get("banner")),
-                    labels=p.get("labels", []),
+                    raw_labels=label_info["raw_labels"],
+                    label_values=label_info["label_values"],
+                    label_sources=label_info["label_sources"],
+                    has_moderation_labels=label_info["has_moderation_labels"],
+                    label_flag_suspend=label_info["label_flag_suspend"],
+                    label_flag_takedown=label_info["label_flag_takedown"],
+                    label_flag_spam=label_info["label_flag_spam"],
+                    label_flag_warn=label_info["label_flag_warn"],
+                    label_flag_hide=label_info["label_flag_hide"],
+                    is_self_labeled=label_info["is_self_labeled"],
                     enriched_at=now_iso,
+                    raw_profile=p,
                 )
                 batch_records.append(rec)
 
