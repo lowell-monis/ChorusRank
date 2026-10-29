@@ -32,6 +32,14 @@ class RawEventRecord(BaseModel):
     tags: Optional[List[str]] = Field(default_factory=list)
     mentions: Optional[List[str]] = Field(default_factory=list)  # DIDs mentioned
     
+    # Explicit numeric counts & text metrics (ready for ML classifiers & fast indexing)
+    char_length: int = 0
+    word_count: int = 0
+    url_count: int = 0
+    domain_count: int = 0
+    tag_count: int = 0
+    mention_count: int = 0
+    
     # Interaction & Graph edges
     reply_parent_uri: Optional[str] = None
     reply_parent_did: Optional[str] = None  # Direct edge for reply interaction graph
