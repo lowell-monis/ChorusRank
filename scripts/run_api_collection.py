@@ -15,6 +15,8 @@ def main() -> None:
     parser.add_argument("--query", type=str, nargs="+", help="One or more search terms")
     parser.add_argument("--limit", type=int, default=2000, help="Max posts per query")
     parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to config file")
+    parser.add_argument("--since", type=str, default=None, help="Earliest post creation ISO timestamp (e.g. 2026-10-01T00:00:00Z)")
+    parser.add_argument("--until", type=str, default=None, help="Latest post creation ISO timestamp (e.g. 2026-10-28T00:00:00Z)")
     args = parser.parse_args()
 
     queries = args.query
@@ -34,7 +36,12 @@ def main() -> None:
     collector = BlueskyAPICollector(storage=storage)
 
     for q in queries:
-        collector.search_posts(query=q, total_limit=limit)
+        collector.search_posts(
+            query=q,
+            total_limit=limit,
+            since=args.since,
+            until=args.until,
+        )
 
     summary = storage.get_dataset_summary()
     print("\n=== Dataset Summary After API Collection ===")
