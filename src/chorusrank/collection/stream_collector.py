@@ -1,4 +1,4 @@
-"""Async Bluesky Jetstream firehose collector with deterministic DID sampling."""
+"""Async Bluesky Jetstream firehose collector with keyword filtering and deterministic sampling."""
 
 from __future__ import annotations
 
@@ -10,20 +10,30 @@ from typing import List, Optional
 
 import websockets
 
-from .api_collector import clean_post_text, extract_entities_and_edges
+from .api_collector import (
+    clean_post_text,
+    extract_entities_and_edges,
+    is_english_post,
+    is_text_heavy_and_valid,
+    contains_target_keywords,
+    TARGET_KEYWORDS_POOL,
+)
 from ..storage.schema import RawEventRecord
 from ..storage import get_storage
 
 
 class JetstreamStreamCollector:
-    """Streams live posts and reposts from Bluesky Jetstream with deterministic sampling."""
+    """Streams live posts and reposts from Bluesky Jetstream with optional keyword filtering."""
 
     def __init__(
         self,
         jetstream_uri: str = "wss://jetstream2.us-east.bsky.network/subscribe",
         wanted_collections: Optional[List[str]] = None,
-        sample_modulo: int = 1,  # 1 = 100% of events, 10 = 10% sampling by DID hash
-        batch_flush_size: int = 1000,
+        sample_modulo: int = 1,  # 1 = 100% of matching events, 10 = 10% sampling
+        batch_flush_size: int = 500,
+        filter_keywords: Optional[List[str]] = None,
+        require_english: bool = True,
+        require_text_heavy: bool = True,
         storage=None,
     ):
         self.base_uri = jetstream_uri
@@ -33,6 +43,9 @@ class JetstreamStreamCollector:
         ]
         self.sample_modulo = max(1, sample_modulo)
         self.batch_flush_size = batch_flush_size
+        self.filter_keywords = filter_keywords
+        self.require_english = require_english
+        self.require_text_heavy = require_text_heavy
         self.storage = storage or get_storage()
         self.running = False
 
@@ -51,20 +64,26 @@ class JetstreamStreamCollector:
         return f"{self.base_uri}?{'&'.join(query_params)}"
 
     async def stream_indefinitely(self, max_events: Optional[int] = None) -> None:
-        """Connect to Jetstream and stream events indefinitely or up to max_events."""
+        """Connect to Jetstream and stream matching events indefinitely or up to max_events."""
         self.running = True
         event_buffer: List[RawEventRecord] = []
         total_processed = 0
+        total_streamed = 0
         last_cursor_us: Optional[int] = None
 
+        has_kw_filter = self.filter_keywords is not None and len(self.filter_keywords) > 0
+        stratum_tag = "stream_keyword" if has_kw_filter else "baseline"
+
         print(f"[Jetstream Streamer] Subscribing to: {self.wanted_collections}")
-        print(f"[Jetstream Streamer] Sampling: 1 out of every {self.sample_modulo} accounts ({100/self.sample_modulo:.1f}%)")
+        print(f"[Jetstream Streamer] Keyword filtering: {'ENABLED (' + str(len(self.filter_keywords)) + ' keywords)' if has_kw_filter else 'DISABLED (all posts)'}")
+        print(f"[Jetstream Streamer] Sampling modulo: 1-in-{self.sample_modulo} ({100/self.sample_modulo:.1f}%)")
+        print(f"[Jetstream Streamer] Content Filters: English={self.require_english} | Text-Heavy={self.require_text_heavy}")
 
         while self.running:
             url = self._build_ws_url(last_cursor_us)
             try:
                 async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
-                    print("[Jetstream Streamer] WebSocket connection established. Ingesting...")
+                    print("[Jetstream Streamer] WebSocket connection established. Ingesting live firehose...")
                     async for raw_message in ws:
                         if not self.running:
                             break
@@ -78,6 +97,7 @@ class JetstreamStreamCollector:
                         commit = msg.get("commit", {})
                         collection = commit.get("collection", "")
                         did = msg.get("did", "")
+                        total_streamed += 1
 
                         if not did or not self._should_sample(did):
                             continue
@@ -85,6 +105,18 @@ class JetstreamStreamCollector:
                         rkey = commit.get("rkey", "")
                         record = commit.get("record", {}) or {}
                         now_iso = datetime.now(timezone.utc).isoformat()
+                        post_text = record.get("text", "")
+                        embed = record.get("embed")
+                        langs = record.get("langs", [])
+
+                        # Apply filters if it is a post
+                        if collection == "app.bsky.feed.post":
+                            if self.require_english and not is_english_post(post_text, langs):
+                                continue
+                            if self.require_text_heavy and not is_text_heavy_and_valid(post_text, embed):
+                                continue
+                            if has_kw_filter and not contains_target_keywords(post_text, self.filter_keywords):
+                                continue
 
                         # Parse reply or repost pointers
                         reply = record.get("reply", {}) or {}
@@ -103,8 +135,6 @@ class JetstreamStreamCollector:
                                 if len(parts) >= 3:
                                     reposted_did = parts[2]
 
-                        post_text = record.get("text", "")
-                        embed = record.get("embed")
                         extracted = extract_entities_and_edges(record, embed)
 
                         event_rec = RawEventRecord(
@@ -117,7 +147,7 @@ class JetstreamStreamCollector:
                             collection=collection,
                             text=post_text,
                             clean_text=clean_post_text(post_text),
-                            langs=record.get("langs", []),
+                            langs=langs,
                             urls=extracted["urls"],
                             domains=extracted["domains"],
                             tags=extracted["tags"],
@@ -138,8 +168,8 @@ class JetstreamStreamCollector:
                             reposted_did=reposted_did,
                             facets=record.get("facets", []),
                             embed=embed,
-                            stratum="baseline",
-                            query_tag="jetstream_sampled",
+                            stratum=stratum_tag,
+                            query_tag="live_stream",
                             post_uri=f"at://{did}/{collection}/{rkey}" if collection == "app.bsky.feed.post" else None,
                             like_count=0,
                             repost_count=0,
@@ -155,11 +185,11 @@ class JetstreamStreamCollector:
 
                         if len(event_buffer) >= self.batch_flush_size:
                             res = self.storage.save_raw_events(event_buffer, partition_name="stream")
-                            print(f"[Jetstream Streamer] Flushed {len(event_buffer)} events (Total: {total_processed}, result: {res})")
+                            print(f"[Jetstream Streamer] Flushed {len(event_buffer)} matching events (Total saved: {total_processed} | Firehose observed: {total_streamed})")
                             event_buffer = []
 
                         if max_events and total_processed >= max_events:
-                            print(f"[Jetstream Streamer] Reached max_events limit ({max_events}). Stopping.")
+                            print(f"[Jetstream Streamer] Reached max_events target ({max_events}). Stopping.")
                             self.running = False
                             break
 
@@ -170,4 +200,4 @@ class JetstreamStreamCollector:
         # Final buffer flush
         if event_buffer:
             res = self.storage.save_raw_events(event_buffer, partition_name="stream")
-            print(f"[Jetstream Streamer] Final flush: saved {len(event_buffer)} events (Result: {res})")
+            print(f"[Jetstream Streamer] Final flush: saved {len(event_buffer)} events (Total saved: {total_processed})")

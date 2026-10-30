@@ -1,4 +1,4 @@
-"""CLI script to run live Bluesky Jetstream firehose collection."""
+"""CLI script to run live Bluesky Jetstream firehose collection with real-time keyword filtering."""
 
 from __future__ import annotations
 
@@ -8,24 +8,35 @@ from pathlib import Path
 import yaml
 
 from chorusrank.collection.stream_collector import JetstreamStreamCollector
+from chorusrank.collection.api_collector import TARGET_KEYWORDS_POOL
 from chorusrank.storage import get_storage
 
 
 async def async_main() -> None:
-    parser = argparse.ArgumentParser(description="Stream live events from Bluesky Jetstream")
-    parser.add_argument("--modulo", type=int, default=1, help="DID hash sample modulo (1 = 100%, 10 = 10%)")
-    parser.add_argument("--limit", type=int, default=None, help="Stop after N events (None for indefinite)")
+    parser = argparse.ArgumentParser(description="Stream live events from Bluesky Jetstream with real-time keyword filtering")
+    parser.add_argument("--filter-keywords", action="store_true", help="Filter live stream for campaign keywords (default: enabled)")
+    parser.add_argument("--keywords", type=str, nargs="+", default=None, help="Custom list of keywords to filter on")
+    parser.add_argument("--modulo", type=int, default=1, help="DID hash sample modulo (1 = 100% of matches, 10 = 10% sampling for prototypes)")
+    parser.add_argument("--limit", type=int, default=None, help="Stop after N matching events (None to run continuously)")
     parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to config file")
     args = parser.parse_args()
 
     sample_modulo = args.modulo
-    if Path(args.config).exists():
-        with open(args.config, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-            sample_modulo = cfg.get("collection", {}).get("jetstream", {}).get("sample_modulo", sample_modulo)
+    kw_filter = None
+
+    if args.keywords:
+        kw_filter = [k.lower() for k in args.keywords]
+    elif args.filter_keywords or True:  # Default to target keywords pool for campaign tracking
+        kw_filter = TARGET_KEYWORDS_POOL
 
     storage = get_storage()
-    streamer = JetstreamStreamCollector(sample_modulo=sample_modulo, storage=storage)
+    streamer = JetstreamStreamCollector(
+        sample_modulo=sample_modulo,
+        filter_keywords=kw_filter,
+        require_english=True,
+        require_text_heavy=True,
+        storage=storage,
+    )
 
     try:
         await streamer.stream_indefinitely(max_events=args.limit)

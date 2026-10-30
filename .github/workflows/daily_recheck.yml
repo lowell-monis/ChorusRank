@@ -28,7 +28,7 @@ jobs:
       - name: Run Longitudinal Status Recheck
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
-          MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME || 'chorusrank' }}
+          MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME || 'ChorusRank' }}
           STORAGE_BACKEND: mongodb
         run: |
           uv run python scripts/run_longitudinal_check.py
