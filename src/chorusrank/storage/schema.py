@@ -66,6 +66,8 @@ class RawEventRecord(BaseModel):
     reply_count: Optional[int] = 0
     quote_count: Optional[int] = 0
     is_deleted: Optional[bool] = False
+    is_edited: Optional[bool] = False
+    previous_text: Optional[str] = None
     last_checked_at: Optional[str] = None
     
     # Post-level moderation labels

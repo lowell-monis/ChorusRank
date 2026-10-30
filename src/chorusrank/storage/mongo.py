@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
@@ -15,6 +17,36 @@ from dotenv import load_dotenv
 from .schema import RawEventRecord, ProfileMetadata, AccountStatusRecord
 
 load_dotenv()
+
+
+def compute_text_similarity(t1: str, t2: str) -> float:
+    """Compute text similarity between two post texts using token Jaccard and character 3-grams.
+    
+    Returns a float between 0.0 (completely dissimilar) and 1.0 (identical).
+    """
+    if not t1 and not t2:
+        return 1.0
+    if not t1 or not t2:
+        return 0.0
+    if t1 == t2:
+        return 1.0
+
+    # 1. Alphanumeric token Jaccard
+    tokens1 = set(re.findall(r"\w+", t1.lower()))
+    tokens2 = set(re.findall(r"\w+", t2.lower()))
+    if not tokens1 and not tokens2:
+        return 1.0
+
+    jaccard = len(tokens1 & tokens2) / max(1, len(tokens1 | tokens2))
+
+    # 2. Character 3-gram similarity (detects minor typo fixes or punctuation edits in short posts)
+    if len(t1) >= 3 and len(t2) >= 3:
+        shingles1 = {t1[i:i+3].lower() for i in range(len(t1) - 2)}
+        shingles2 = {t2[i:i+3].lower() for i in range(len(t2) - 2)}
+        shingle_jaccard = len(shingles1 & shingles2) / max(1, len(shingles1 | shingles2))
+        return max(jaccard, shingle_jaccard)
+
+    return jaccard
 
 
 class MongoStorage:
@@ -80,98 +112,153 @@ class MongoStorage:
         except Exception as e:
             print(f"[MongoStorage] Note on index creation: {e}")
 
-    def save_raw_events(self, events: List[RawEventRecord], **kwargs) -> int:
-        """Save a batch of raw events using upsert with atomic field protection.
-        
-        Guarantees:
-        1. Permanent content (text, clean_text, entities, author, original collected_at) 
-           is written on insert ($setOnInsert) and NEVER overwritten by subsequent queries.
-        2. Dynamic metrics (like_count, repost_count, labels, last_checked_at) are refreshed ($set).
-        3. All overlapping search keywords are preserved and accumulated in matched_queries ($addToSet).
+    def save_raw_events(
+        self,
+        events: List[RawEventRecord],
+        similarity_threshold: float = 0.25,
+        **kwargs,
+    ) -> int:
+        """Save a batch of raw events with text-similarity verification and collision defense.
+
+        Deduplication Algorithm:
+        1. Query DB for existing documents matching event_ids in this batch.
+        2. If event_id is NEW:
+           - Insert cleanly with all fields and initial matched_queries.
+        3. If event_id MATCHES an existing document:
+           - Compare incoming text with existing DB text:
+             a. EXACT / HIGH SIMILARITY (sim >= 0.95):
+                - Same post re-encountered: refresh dynamic engagement metrics (likes, reposts, labels)
+                  and append query to matched_queries ($addToSet). Preserve original text and timestamps.
+             b. SOMEWHAT SIMILAR (similarity_threshold <= sim < 0.95):
+                - EDITED POST: Author edited post text. Update text, clean_text, NLP word/char counts,
+                  entities, and mark is_edited=True and previous_text=existing_text, while also
+                  updating engagement metrics and accumulating matched_queries.
+             c. COMPLETELY DIFFERENT TEXT (sim < similarity_threshold):
+                - COLLISION EDGE CASE: Two completely different posts accidentally produced the same ID.
+                  DO NOT overwrite the original post and DO NOT update its metrics.
+                  Disambiguate the new post with a collision key and insert it independently,
+                  protecting the original post and preserving both records.
         """
         if not events:
             return 0
 
-        operations = []
-        for e in events:
-            if not e.event_id or not e.did:
-                continue
+        valid_events = [e for e in events if e.event_id and e.did]
+        if not valid_events:
+            return 0
 
-            insert_only = {
-                "event_id": e.event_id,
-                "did": e.did,
-                "handle": e.handle,
-                "rkey": e.rkey,
-                "cid": e.cid,
-                "created_at": e.created_at,
-                "collected_at": e.collected_at,
-                "collection": e.collection,
-                "text": e.text,
-                "clean_text": e.clean_text,
-                "langs": e.langs,
-                "urls": e.urls,
-                "domains": e.domains,
-                "tags": e.tags,
-                "mentions": e.mentions,
-                "char_length": e.char_length,
-                "word_count": e.word_count,
-                "url_count": e.url_count,
-                "domain_count": e.domain_count,
-                "tag_count": e.tag_count,
-                "mention_count": e.mention_count,
-                "reply_parent_uri": e.reply_parent_uri,
-                "reply_parent_did": e.reply_parent_did,
-                "reply_root_uri": e.reply_root_uri,
-                "reply_root_did": e.reply_root_did,
-                "quote_uri": e.quote_uri,
-                "quote_did": e.quote_did,
-                "reposted_uri": e.reposted_uri,
-                "reposted_did": e.reposted_did,
-                "facets": e.facets,
-                "embed": e.embed,
-                "stratum": e.stratum,
-                "query_tag": e.query_tag,
-                "post_uri": e.post_uri,
-                "raw_payload": e.raw_payload,
-            }
-
-            dynamic_updates = {
-                "like_count": e.like_count,
-                "repost_count": e.repost_count,
-                "reply_count": e.reply_count,
-                "quote_count": e.quote_count,
-                "is_deleted": e.is_deleted,
-                "last_checked_at": e.last_checked_at,
-                "post_labels": e.post_labels,
-                "post_label_values": e.post_label_values,
-                "author_labels": e.author_labels,
-                "author_label_values": e.author_label_values,
-            }
-
-            update_doc: Dict[str, Any] = {
-                "$setOnInsert": insert_only,
-                "$set": dynamic_updates,
-            }
-            if e.query_tag:
-                update_doc["$addToSet"] = {"matched_queries": e.query_tag}
-
-            operations.append(
-                UpdateOne(
-                    {"event_id": e.event_id},
-                    update_doc,
-                    upsert=True,
-                )
+        incoming_ids = [e.event_id for e in valid_events]
+        existing_docs: Dict[str, dict] = {
+            doc["event_id"]: doc
+            for doc in self.events_col.find(
+                {"event_id": {"$in": incoming_ids}},
+                {"event_id": 1, "text": 1, "clean_text": 1, "created_at": 1}
             )
+        }
+
+        operations = []
+        for e in valid_events:
+            existing = existing_docs.get(e.event_id)
+
+            if existing is None:
+                # Brand new post -> insert cleanly
+                doc = e.model_dump()
+                if e.query_tag and not doc.get("matched_queries"):
+                    doc["matched_queries"] = [e.query_tag]
+                operations.append(InsertOne(doc))
+                existing_docs[e.event_id] = doc
+
+            else:
+                existing_text = existing.get("text", "")
+                sim = compute_text_similarity(e.text, existing_text)
+
+                if sim >= 0.95:
+                    # Same post re-encountered: refresh metrics, accumulate query tags
+                    dynamic_updates = {
+                        "like_count": e.like_count,
+                        "repost_count": e.repost_count,
+                        "reply_count": e.reply_count,
+                        "quote_count": e.quote_count,
+                        "is_deleted": e.is_deleted,
+                        "last_checked_at": e.last_checked_at,
+                        "post_labels": e.post_labels,
+                        "post_label_values": e.post_label_values,
+                        "author_labels": e.author_labels,
+                        "author_label_values": e.author_label_values,
+                    }
+                    update_doc: Dict[str, Any] = {"$set": dynamic_updates}
+                    if e.query_tag:
+                        update_doc["$addToSet"] = {"matched_queries": e.query_tag}
+
+                    operations.append(
+                        UpdateOne({"event_id": e.event_id}, update_doc)
+                    )
+
+                elif sim >= similarity_threshold:
+                    # Post was EDITED! Update text to edited version AND refresh metrics
+                    edited_updates = {
+                        "text": e.text,
+                        "clean_text": e.clean_text,
+                        "langs": e.langs,
+                        "urls": e.urls,
+                        "domains": e.domains,
+                        "tags": e.tags,
+                        "mentions": e.mentions,
+                        "char_length": e.char_length,
+                        "word_count": e.word_count,
+                        "url_count": e.url_count,
+                        "domain_count": e.domain_count,
+                        "tag_count": e.tag_count,
+                        "mention_count": e.mention_count,
+                        "facets": e.facets,
+                        "embed": e.embed,
+                        "is_edited": True,
+                        "previous_text": existing_text,
+                        "like_count": e.like_count,
+                        "repost_count": e.repost_count,
+                        "reply_count": e.reply_count,
+                        "quote_count": e.quote_count,
+                        "is_deleted": e.is_deleted,
+                        "last_checked_at": e.last_checked_at,
+                        "post_labels": e.post_labels,
+                        "post_label_values": e.post_label_values,
+                        "author_labels": e.author_labels,
+                        "author_label_values": e.author_label_values,
+                    }
+                    update_doc = {"$set": edited_updates}
+                    if e.query_tag:
+                        update_doc["$addToSet"] = {"matched_queries": e.query_tag}
+
+                    operations.append(
+                        UpdateOne({"event_id": e.event_id}, update_doc)
+                    )
+
+                else:
+                    # COLLISION EDGE CASE: Completely different text under the same ID
+                    # Protect original post; save incoming post under disambiguated collision ID
+                    collision_hash = hashlib.sha256((e.text or "").encode("utf-8")).hexdigest()[:8]
+                    disambiguated_id = f"{e.event_id}_collision_{collision_hash}"
+
+                    collided_doc = e.model_dump()
+                    collided_doc["event_id"] = disambiguated_id
+                    if e.query_tag and not collided_doc.get("matched_queries"):
+                        collided_doc["matched_queries"] = [e.query_tag]
+
+                    print(
+                        f"[MongoStorage] Collision detected for ID '{e.event_id}': "
+                        f"text similarity ({sim:.2f}) < {similarity_threshold}. "
+                        f"Saved incoming post as '{disambiguated_id}' to protect original post."
+                    )
+                    operations.append(InsertOne(collided_doc))
 
         if not operations:
             return 0
 
         try:
             res = self.events_col.bulk_write(operations, ordered=False)
-            inserted_or_upserted = (res.upserted_count or 0) + (res.modified_count or 0)
+            inserted_or_upserted = (res.upserted_count or 0) + (res.modified_count or 0) + (res.inserted_count or 0)
             return inserted_or_upserted
         except BulkWriteError as bwe:
-            return bwe.details.get("nUpserted", 0)
+            return bwe.details.get("nInserted", 0) + bwe.details.get("nUpserted", 0)
 
     def save_profiles(self, profiles: List[ProfileMetadata], **kwargs) -> int:
         """Upsert enriched profile records by DID."""
