@@ -35,8 +35,12 @@ def main() -> None:
     print(f"Unique Observed DIDs:    {total_dids:,}")
     print(f"Profiles Enriched:       {enriched_dids:,}")
     if isinstance(storage, MongoStorage):
+        print(f"  • Moderation Labeled:  {summary.get('profiles_with_moderation_labels', 0):,}")
+        print(f"  • Self-Declared Bots:  {summary.get('self_declared_bots', 0):,}")
         print(f"Takedowns Detected:      {summary.get('takedowns_detected', 0):,}")
         print(f"Deleted Posts Detected:  {summary.get('deleted_posts_detected', 0):,}")
+    print(f"Distinct Domains:        {summary.get('distinct_external_domains', 0):,}")
+    print(f"Distinct Hashtags:       {summary.get('distinct_hashtags', 0):,}")
     print(f"Earliest Event:          {summary.get('earliest_event', 'N/A')}")
     print(f"Latest Event:            {summary.get('latest_event', 'N/A')}")
 

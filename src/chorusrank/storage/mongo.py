@@ -339,6 +339,7 @@ class MongoStorage:
         unique_dids = len(self.get_distinct_dids())
         profiles_count = self.profiles_col.estimated_document_count()
         labeled_profiles_count = self.profiles_col.count_documents({"has_moderation_labels": True})
+        self_declared_bots = self.profiles_col.count_documents({"is_self_declared_bot": True})
         
         strict_takedowns = self.status_col.count_documents({"label_strict_takedown": True})
         broad_inauthentic = self.status_col.count_documents({"label_broad_inauthentic": True})
@@ -348,6 +349,7 @@ class MongoStorage:
         latest_doc = self.events_col.find_one(sort=[("created_at", -1)])
 
         posts_count = self.events_col.count_documents({"collection": "app.bsky.feed.post"})
+        reposts_count = self.events_col.count_documents({"collection": "app.bsky.feed.repost"})
         distinct_domains = len(self.events_col.distinct("domains"))
         distinct_tags = len(self.events_col.distinct("tags"))
 
@@ -356,9 +358,11 @@ class MongoStorage:
             "database_name": self.db_name,
             "total_events": total_events,
             "posts_count": posts_count,
+            "reposts_count": reposts_count,
             "unique_dids": unique_dids,
             "profiles_enriched": profiles_count,
             "profiles_with_moderation_labels": labeled_profiles_count,
+            "self_declared_bots": self_declared_bots,
             "strict_takedowns_detected": strict_takedowns,
             "broad_inauthentic_detected": broad_inauthentic,
             "deleted_posts_detected": deleted_posts_count,
