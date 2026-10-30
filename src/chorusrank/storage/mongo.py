@@ -62,7 +62,11 @@ class MongoStorage:
         self.db_name = db_name or os.getenv("MONGO_DB_NAME") or "ChorusRank"
         self.cert_file_path = cert_file_path or os.getenv("CERT_FILE_PATH", "")
 
-        client_kwargs: Dict[str, Any] = {"serverSelectionTimeoutMS": 4000}
+        client_kwargs: Dict[str, Any] = {
+            "serverSelectionTimeoutMS": 15000,
+            "connectTimeoutMS": 15000,
+            "socketTimeoutMS": 20000,
+        }
         if "mongodb+srv://" in self.mongo_uri or "authMechanism=MONGODB-X509" in self.mongo_uri:
             client_kwargs["tls"] = True
             client_kwargs["tlsCAFile"] = certifi.where()

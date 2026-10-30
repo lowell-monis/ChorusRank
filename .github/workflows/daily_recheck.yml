@@ -30,7 +30,7 @@ jobs:
 
       - name: Run Longitudinal Status Recheck
         env:
-          MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_URI: ${{ secrets.MONGO_URI || secrets.MONGODB_URI || secrets.MONGO_URL }}
           MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME || 'ChorusRank' }}
           STORAGE_BACKEND: mongodb
         run: |
