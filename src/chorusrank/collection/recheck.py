@@ -144,7 +144,7 @@ class LongitudinalRechecker:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "ChorusRank-Research/0.1.0"})
 
-    def check_did_status(self, did: str) -> AccountStatusRecord:
+    def check_did_status(self, did: str, known_handle: Optional[str] = None) -> AccountStatusRecord:
         """Query getProfile for a single DID and record its status and labels."""
         now_iso = datetime.now(timezone.utc).isoformat()
         url = f"{self.base_url}/app.bsky.actor.getProfile"
@@ -168,7 +168,7 @@ class LongitudinalRechecker:
                 )
                 return AccountStatusRecord(
                     did=did,
-                    handle=data.get("handle"),
+                    handle=data.get("handle") or known_handle,
                     status=clf["status"],
                     status_code=200,
                     raw_labels=clf["raw_labels"],
@@ -180,7 +180,7 @@ class LongitudinalRechecker:
                     checked_at=now_iso,
                 )
 
-            # Capture complete error payload
+            # Capture complete error payload (e.g. AccountTakedown, AccountDeactivated)
             raw_payload = {}
             try:
                 raw_payload = resp.json()
@@ -200,6 +200,7 @@ class LongitudinalRechecker:
 
             return AccountStatusRecord(
                 did=did,
+                handle=known_handle,
                 status=clf["status"],
                 status_code=status_code,
                 error_name=err_name,
@@ -217,6 +218,7 @@ class LongitudinalRechecker:
         except requests.RequestException as e:
             return AccountStatusRecord(
                 did=did,
+                handle=known_handle,
                 status="NETWORK_ERROR",
                 status_code=None,
                 error_name="RequestException",
@@ -235,13 +237,35 @@ class LongitudinalRechecker:
         if sample_limit:
             dids = dids[:sample_limit]
 
-        print(f"[Longitudinal Rechecker] Starting daily probe for {len(dids)} accounts...")
+        # Prefetch known handles so taken-down / deactivated accounts retain their identity
+        handle_map: Dict[str, str] = {}
+        if hasattr(self.storage, "profiles_col"):
+            try:
+                for doc in self.storage.profiles_col.find({"handle": {"$ne": None}}, {"did": 1, "handle": 1}):
+                    d = doc.get("did")
+                    h = doc.get("handle")
+                    if d and h:
+                        handle_map[d] = h
+            except Exception:
+                pass
+        if hasattr(self.storage, "events_col") and len(handle_map) < len(dids):
+            try:
+                missing = [d for d in dids if d not in handle_map]
+                for doc in self.storage.events_col.find({"did": {"$in": missing}, "handle": {"$ne": None}}, {"did": 1, "handle": 1}):
+                    d = doc.get("did")
+                    h = doc.get("handle")
+                    if d and h and d not in handle_map:
+                        handle_map[d] = h
+            except Exception:
+                pass
+
+        print(f"[Longitudinal Rechecker] Starting daily probe for {len(dids)} accounts (Known handles cached: {len(handle_map)})...")
         records: List[AccountStatusRecord] = []
         takedowns_found = 0
         status_counts: Dict[str, int] = {}
 
         for i, did in enumerate(dids):
-            rec = self.check_did_status(did)
+            rec = self.check_did_status(did, known_handle=handle_map.get(did))
             records.append(rec)
             status_counts[rec.status] = status_counts.get(rec.status, 0) + 1
 
