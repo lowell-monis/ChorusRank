@@ -81,20 +81,90 @@ class MongoStorage:
             print(f"[MongoStorage] Note on index creation: {e}")
 
     def save_raw_events(self, events: List[RawEventRecord], **kwargs) -> int:
-        """Save a batch of raw events using upsert to avoid duplicate keys."""
+        """Save a batch of raw events using upsert with atomic field protection.
+        
+        Guarantees:
+        1. Permanent content (text, clean_text, entities, author, original collected_at) 
+           is written on insert ($setOnInsert) and NEVER overwritten by subsequent queries.
+        2. Dynamic metrics (like_count, repost_count, labels, last_checked_at) are refreshed ($set).
+        3. All overlapping search keywords are preserved and accumulated in matched_queries ($addToSet).
+        """
         if not events:
             return 0
 
         operations = []
         for e in events:
-            doc = e.model_dump()
+            if not e.event_id or not e.did:
+                continue
+
+            insert_only = {
+                "event_id": e.event_id,
+                "did": e.did,
+                "handle": e.handle,
+                "rkey": e.rkey,
+                "cid": e.cid,
+                "created_at": e.created_at,
+                "collected_at": e.collected_at,
+                "collection": e.collection,
+                "text": e.text,
+                "clean_text": e.clean_text,
+                "langs": e.langs,
+                "urls": e.urls,
+                "domains": e.domains,
+                "tags": e.tags,
+                "mentions": e.mentions,
+                "char_length": e.char_length,
+                "word_count": e.word_count,
+                "url_count": e.url_count,
+                "domain_count": e.domain_count,
+                "tag_count": e.tag_count,
+                "mention_count": e.mention_count,
+                "reply_parent_uri": e.reply_parent_uri,
+                "reply_parent_did": e.reply_parent_did,
+                "reply_root_uri": e.reply_root_uri,
+                "reply_root_did": e.reply_root_did,
+                "quote_uri": e.quote_uri,
+                "quote_did": e.quote_did,
+                "reposted_uri": e.reposted_uri,
+                "reposted_did": e.reposted_did,
+                "facets": e.facets,
+                "embed": e.embed,
+                "stratum": e.stratum,
+                "query_tag": e.query_tag,
+                "post_uri": e.post_uri,
+                "raw_payload": e.raw_payload,
+            }
+
+            dynamic_updates = {
+                "like_count": e.like_count,
+                "repost_count": e.repost_count,
+                "reply_count": e.reply_count,
+                "quote_count": e.quote_count,
+                "is_deleted": e.is_deleted,
+                "last_checked_at": e.last_checked_at,
+                "post_labels": e.post_labels,
+                "post_label_values": e.post_label_values,
+                "author_labels": e.author_labels,
+                "author_label_values": e.author_label_values,
+            }
+
+            update_doc: Dict[str, Any] = {
+                "$setOnInsert": insert_only,
+                "$set": dynamic_updates,
+            }
+            if e.query_tag:
+                update_doc["$addToSet"] = {"matched_queries": e.query_tag}
+
             operations.append(
                 UpdateOne(
                     {"event_id": e.event_id},
-                    {"$set": doc},
+                    update_doc,
                     upsert=True,
                 )
             )
+
+        if not operations:
+            return 0
 
         try:
             res = self.events_col.bulk_write(operations, ordered=False)

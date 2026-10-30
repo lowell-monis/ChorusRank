@@ -291,6 +291,9 @@ class BlueskyAPICollector:
 
                 uri = p.get("uri", "")
                 rkey = uri.split("/")[-1] if "/" in uri else ""
+                if not author_did or not rkey or not uri:
+                    continue
+
                 event_id = f"{author_did}_{rkey}"
                 if event_id in seen_event_ids:
                     continue

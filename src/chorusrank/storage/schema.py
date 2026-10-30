@@ -57,6 +57,7 @@ class RawEventRecord(BaseModel):
     # Sampling metadata
     stratum: str = "targeted"  # "targeted" (search queries) or "baseline" (sampled firehose)
     query_tag: Optional[str] = None
+    matched_queries: Optional[List[str]] = Field(default_factory=list)
     post_uri: Optional[str] = None  # Full AT-URI (at://did/app.bsky.feed.post/rkey)
     
     # Engagement & Lifecycle metrics

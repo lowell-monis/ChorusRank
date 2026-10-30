@@ -103,6 +103,8 @@ class JetstreamStreamCollector:
                             continue
 
                         rkey = commit.get("rkey", "")
+                        if not rkey:
+                            continue
                         record = commit.get("record", {}) or {}
                         now_iso = datetime.now(timezone.utc).isoformat()
                         post_text = record.get("text", "")
@@ -137,8 +139,9 @@ class JetstreamStreamCollector:
 
                         extracted = extract_entities_and_edges(record, embed)
 
+                        event_id = f"repost_{did}_{rkey}" if collection == "app.bsky.feed.repost" else f"{did}_{rkey}"
                         event_rec = RawEventRecord(
-                            event_id=f"{did}_{rkey}",
+                            event_id=event_id,
                             did=did,
                             rkey=rkey,
                             cid=commit.get("cid"),
