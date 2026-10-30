@@ -26,8 +26,8 @@ class MongoStorage:
         db_name: Optional[str] = None,
         cert_file_path: Optional[str] = None,
     ):
-        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        self.db_name = db_name or os.getenv("MONGO_DB_NAME", "ChorusRank")
+        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI") or "mongodb://localhost:27017"
+        self.db_name = db_name or os.getenv("MONGO_DB_NAME") or "ChorusRank"
         self.cert_file_path = cert_file_path or os.getenv("CERT_FILE_PATH", "")
 
         client_kwargs: Dict[str, Any] = {"serverSelectionTimeoutMS": 4000}

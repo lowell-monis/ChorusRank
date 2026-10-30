@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
+
 from chorusrank.collection.recheck import LongitudinalRechecker
 from chorusrank.storage import get_storage
+from chorusrank.storage.mongo import MongoStorage
 
 
 def main() -> None:
@@ -14,6 +18,12 @@ def main() -> None:
     args = parser.parse_args()
 
     storage = get_storage()
+    if os.getenv("STORAGE_BACKEND") == "mongodb" and not isinstance(storage, MongoStorage):
+        print("\n[CRITICAL ERROR] Failed to connect to MongoDB Atlas in automated recheck job!")
+        print("  1. Verify the 'MONGO_URI' secret is set in GitHub Repository Secrets.")
+        print("  2. Verify that MongoDB Atlas allows access from GitHub Actions (Network Access -> 0.0.0.0/0).")
+        sys.exit(1)
+
     rechecker = LongitudinalRechecker(storage=storage)
 
     print("\n--- [1/2] Checking Account Longitudinal Status ---")

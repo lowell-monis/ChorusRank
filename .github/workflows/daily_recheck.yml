@@ -2,9 +2,12 @@ name: Daily Longitudinal Recheck
 
 on:
   schedule:
-    # Runs daily at 12:00 UTC (8:00 AM EDT)
-    - cron: '0 12 * * *'
+    # Runs daily at 12:15 UTC (8:15 AM EDT) - offset from :00 to avoid GitHub Actions runner queue congestion
+    - cron: '15 12 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+
+permissions:
+  contents: read
 
 jobs:
   longitudinal-recheck:

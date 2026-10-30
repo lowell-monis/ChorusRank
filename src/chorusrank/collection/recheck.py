@@ -151,6 +151,10 @@ class LongitudinalRechecker:
 
         try:
             resp = self.session.get(url, params={"actor": did}, timeout=10)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 10))
+                time.sleep(retry_after)
+                resp = self.session.get(url, params={"actor": did}, timeout=10)
             status_code = resp.status_code
 
             if status_code == 200:
