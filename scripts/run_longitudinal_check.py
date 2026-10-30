@@ -19,9 +19,19 @@ def main() -> None:
 
     storage = get_storage()
     if os.getenv("STORAGE_BACKEND") == "mongodb" and not isinstance(storage, MongoStorage):
-        print("\n[CRITICAL ERROR] Failed to connect to MongoDB Atlas in automated recheck job!")
-        print("  1. Verify the 'MONGO_URI' secret is set in GitHub Repository Secrets.")
-        print("  2. Verify that MongoDB Atlas allows access from GitHub Actions (Network Access -> 0.0.0.0/0).")
+        print("\n" + "=" * 70)
+        print("CRITICAL ERROR: Failed to connect to MongoDB Atlas in automated recheck job!")
+        print("=" * 70)
+        if not os.getenv("MONGO_URI"):
+            print("CAUSE: The 'MONGO_URI' secret is MISSING or EMPTY in GitHub Secrets.")
+            print("FIX: Go to your GitHub repository -> Settings -> Secrets and variables -> Actions")
+            print("     Click 'New repository secret', name it 'MONGO_URI', and paste your Atlas URI.")
+        else:
+            print("CAUSE: Connection to MongoDB Atlas timed out or was rejected by Atlas firewall.")
+            print("FIX: Log in to MongoDB Atlas (cloud.mongodb.com) -> Security -> Network Access.")
+            print("     Click 'Add IP Address', select 'Allow Access from Anywhere' (0.0.0.0/0).")
+            print("     GitHub Actions runners run on dynamic cloud IPs and will be blocked without this.")
+        print("=" * 70 + "\n")
         sys.exit(1)
 
     rechecker = LongitudinalRechecker(storage=storage)

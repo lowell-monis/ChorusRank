@@ -23,15 +23,20 @@ def get_storage(backend: str | None = None) -> Union[MongoStorage, ChorusStorage
     selected = (backend or os.getenv("STORAGE_BACKEND", "mongodb")).lower()
 
     if selected == "mongodb" or (selected != "parquet" and os.getenv("MONGO_URI")):
+        uri = os.getenv("MONGO_URI", "").strip()
+        if not uri and selected == "mongodb":
+            print("\n[Storage Factory] ERROR: STORAGE_BACKEND is set to 'mongodb' but MONGO_URI is empty!")
+            print("[Storage Factory] Ensure 'MONGO_URI' secret is configured in GitHub Repository Settings -> Secrets -> Actions.\n")
+            return ChorusStorage()
+
         try:
             storage = MongoStorage()
-            # Fast ping with 3s timeout to verify network and credentials
+            # Fast ping with 4s timeout to verify network and credentials
             storage.client.admin.command("ping")
             return storage
         except Exception as e:
-            print(f"[Storage Factory] Notice: MongoDB Atlas ping failed: {e}")
-            print("[Storage Factory] Note: If on dynamic/campus WiFi, ensure 0.0.0.0/0 is added in MongoDB Atlas -> Network Access.")
-            print("[Storage Factory] Falling back to local Parquet/DuckDB storage for this run.")
+            print(f"\n[Storage Factory] MongoDB Atlas ping failed: {e}")
+            print("[Storage Factory] Note: For GitHub Actions runners, ensure 0.0.0.0/0 is whitelisted in MongoDB Atlas -> Network Access.\n")
             return ChorusStorage()
 
     return ChorusStorage()
