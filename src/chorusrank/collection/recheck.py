@@ -36,6 +36,18 @@ def classify_status_and_labels(
         has_takedown = "!takedown" in joined or "takedown" in joined
         has_spam = "spam" in joined or "scam" in joined
 
+        has_bot = False
+        is_self_bot = False
+        account_did = data.get("did", "")
+        for lbl in raw_labels:
+            if isinstance(lbl, dict):
+                v = str(lbl.get("val", "")).lower()
+                s = str(lbl.get("src", ""))
+                if "bot" in v:
+                    has_bot = True
+                    if s == account_did:
+                        is_self_bot = True
+
         if has_suspend or has_takedown:
             status = "SUSPENDED_LABEL"
             cat = "ACTIVE_LABELED"
@@ -64,6 +76,8 @@ def classify_status_and_labels(
             "label_strict_takedown": strict_takedown,
             "label_broad_inauthentic": broad_inauth,
             "label_churn": False,
+            "is_self_declared_bot": is_self_bot,
+            "is_bot_labeled": has_bot,
             "label_category": cat,
         }
 
@@ -109,6 +123,8 @@ def classify_status_and_labels(
         "label_strict_takedown": strict_takedown,
         "label_broad_inauthentic": broad_inauth,
         "label_churn": churn,
+        "is_self_declared_bot": False,
+        "is_bot_labeled": False,
         "label_category": cat,
     }
 

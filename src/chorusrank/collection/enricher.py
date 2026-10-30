@@ -26,12 +26,16 @@ def parse_profile_labels(labels_list: List[dict], account_did: str) -> Dict[str,
             "label_flag_spam": False,
             "label_flag_warn": False,
             "label_flag_hide": False,
+            "label_flag_bot": False,
             "is_self_labeled": False,
+            "is_self_declared_bot": False,
         }
 
     label_values: List[str] = []
     label_sources: List[str] = []
     is_self = False
+    is_self_bot = False
+    has_bot_label = False
 
     for lbl in labels_list:
         if not isinstance(lbl, dict):
@@ -40,6 +44,10 @@ def parse_profile_labels(labels_list: List[dict], account_did: str) -> Dict[str,
         src = lbl.get("src", "")
         if val:
             label_values.append(val)
+            if "bot" in val.lower():
+                has_bot_label = True
+                if src == account_did:
+                    is_self_bot = True
         if src:
             label_sources.append(src)
         if src == account_did:
@@ -58,7 +66,9 @@ def parse_profile_labels(labels_list: List[dict], account_did: str) -> Dict[str,
         "label_flag_spam": "spam" in joined or "scam" in joined,
         "label_flag_warn": "!warn" in joined or "warn" in joined,
         "label_flag_hide": "!hide" in joined or "hide" in joined,
+        "label_flag_bot": has_bot_label,
         "is_self_labeled": is_self,
+        "is_self_declared_bot": is_self_bot,
     }
 
 
@@ -151,7 +161,9 @@ class ProfileEnricher:
                     label_flag_spam=label_info["label_flag_spam"],
                     label_flag_warn=label_info["label_flag_warn"],
                     label_flag_hide=label_info["label_flag_hide"],
+                    label_flag_bot=label_info["label_flag_bot"],
                     is_self_labeled=label_info["is_self_labeled"],
+                    is_self_declared_bot=label_info["is_self_declared_bot"],
                     enriched_at=now_iso,
                     raw_profile=p,
                 )

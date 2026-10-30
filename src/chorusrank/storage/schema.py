@@ -102,7 +102,9 @@ class ProfileMetadata(BaseModel):
     label_flag_spam: bool = False
     label_flag_warn: bool = False
     label_flag_hide: bool = False
+    label_flag_bot: bool = False
     is_self_labeled: bool = False
+    is_self_declared_bot: bool = False
     
     enriched_at: str
     raw_profile: Optional[dict] = None
@@ -129,6 +131,8 @@ class AccountStatusRecord(BaseModel):
     label_broad_inauthentic: bool = False
     # 3. Voluntary churn (self-deactivations)
     label_churn: bool = False
+    is_self_declared_bot: bool = False
+    is_bot_labeled: bool = False
     # 4. Multiclass status category
     label_category: str = "ACTIVE_CLEAN"  # ACTIVE_CLEAN, ACTIVE_LABELED, TAKEDOWN, DEACTIVATED, PURGED_OR_MISSING, UNKNOWN
     
