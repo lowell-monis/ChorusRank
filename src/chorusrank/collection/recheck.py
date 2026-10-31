@@ -147,6 +147,7 @@ class LongitudinalRechecker:
     def check_did_status(self, did: str, known_handle: Optional[str] = None) -> AccountStatusRecord:
         """Query getProfile for a single DID and record its status and labels."""
         now_iso = datetime.now(timezone.utc).isoformat()
+        check_date = now_iso[:10]
         url = f"{self.base_url}/app.bsky.actor.getProfile"
 
         try:
@@ -178,6 +179,7 @@ class LongitudinalRechecker:
                     label_churn=clf["label_churn"],
                     label_category=clf["label_category"],
                     checked_at=now_iso,
+                    check_date=check_date,
                 )
 
             # Capture complete error payload (e.g. AccountTakedown, AccountDeactivated)
@@ -213,6 +215,7 @@ class LongitudinalRechecker:
                 label_churn=clf["label_churn"],
                 label_category=clf["label_category"],
                 checked_at=now_iso,
+                check_date=check_date,
             )
 
         except requests.RequestException as e:
@@ -229,6 +232,7 @@ class LongitudinalRechecker:
                 label_churn=False,
                 label_category="UNKNOWN",
                 checked_at=now_iso,
+                check_date=check_date,
             )
 
     def run_daily_recheck(self, sample_limit: Optional[int] = None) -> List[AccountStatusRecord]:

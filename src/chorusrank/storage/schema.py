@@ -140,6 +140,7 @@ class AccountStatusRecord(BaseModel):
     label_category: str = "ACTIVE_CLEAN"  # ACTIVE_CLEAN, ACTIVE_LABELED, TAKEDOWN, DEACTIVATED, PURGED_OR_MISSING, UNKNOWN
     
     checked_at: str
+    check_date: Optional[str] = None
 
 
 class GoldLabelRecord(BaseModel):

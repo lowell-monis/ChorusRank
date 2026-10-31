@@ -108,7 +108,9 @@ class MongoStorage:
             self.profiles_col.create_index("label_flag_spam")
 
             # Status history index
+            self.status_col.create_index([("did", 1), ("check_date", 1)], unique=True)
             self.status_col.create_index([("did", 1), ("checked_at", -1)])
+            self.status_col.create_index("check_date")
             self.status_col.create_index("status")
             self.status_col.create_index("label_strict_takedown")
             self.status_col.create_index("label_broad_inauthentic")
@@ -287,13 +289,28 @@ class MongoStorage:
             return bwe.details.get("nUpserted", 0)
 
     def save_status_checks(self, records: List[AccountStatusRecord], **kwargs) -> int:
-        """Insert longitudinal status checks."""
+        """Upsert longitudinal status checks (1 record per account per calendar day)."""
         if not records:
             return 0
 
-        docs = [r.model_dump() for r in records]
-        res = self.status_col.insert_many(docs, ordered=False)
-        return len(res.inserted_ids)
+        operations = []
+        for r in records:
+            doc = r.model_dump()
+            c_date = doc.get("check_date") or (doc.get("checked_at") or "")[:10]
+            doc["check_date"] = c_date
+            operations.append(
+                UpdateOne(
+                    {"did": r.did, "check_date": c_date},
+                    {"$set": doc},
+                    upsert=True,
+                )
+            )
+
+        try:
+            res = self.status_col.bulk_write(operations, ordered=False)
+            return (res.upserted_count or 0) + (res.modified_count or 0)
+        except BulkWriteError as bwe:
+            return bwe.details.get("nUpserted", 0) + bwe.details.get("nModified", 0)
 
     def get_distinct_dids(self) -> List[str]:
         """Fetch all unique DIDs observed across stored raw events."""
