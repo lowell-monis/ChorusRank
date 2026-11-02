@@ -136,10 +136,24 @@ class AccountStatusRecord(BaseModel):
     label_churn: bool = False
     is_self_declared_bot: bool = False
     is_bot_labeled: bool = False
-    # 4. Multiclass status category
+    # Multiclass status category
     label_category: str = "ACTIVE_CLEAN"  # ACTIVE_CLEAN, ACTIVE_LABELED, TAKEDOWN, DEACTIVATED, PURGED_OR_MISSING, UNKNOWN
     
-    checked_at: str
+    # Canonical progression and change tracking features
+    first_checked_at: Optional[str] = None
+    last_checked_at: Optional[str] = None
+    check_count: int = 1
+    status_change_count: int = 0
+    last_status_change_at: Optional[str] = None
+    initial_status: Optional[str] = None
+    initial_category: Optional[str] = None
+    is_currently_active: bool = True
+    ever_strict_takedown: bool = False
+    ever_broad_inauthentic: bool = False
+    ever_churn: bool = False
+    transitions: List[dict] = Field(default_factory=list)
+
+    checked_at: Optional[str] = None
     check_date: Optional[str] = None
 
 

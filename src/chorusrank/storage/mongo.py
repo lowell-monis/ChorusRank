@@ -107,14 +107,21 @@ class MongoStorage:
             self.profiles_col.create_index("label_flag_suspend")
             self.profiles_col.create_index("label_flag_spam")
 
-            # Status history index
-            self.status_col.create_index([("did", 1), ("check_date", 1)], unique=True)
-            self.status_col.create_index([("did", 1), ("checked_at", -1)])
-            self.status_col.create_index("check_date")
+            # Drop legacy multi-row status indexes if present
+            for l_idx in ["did_1_check_date_1", "did_1_checked_at_-1", "check_date_1", "label_strict_takedown_1", "label_broad_inauthentic_1"]:
+                try:
+                    self.status_col.drop_index(l_idx)
+                except Exception:
+                    pass
+
+            # Canonical Status history index (1 record per account)
+            self.status_col.create_index("did", unique=True)
             self.status_col.create_index("status")
-            self.status_col.create_index("label_strict_takedown")
-            self.status_col.create_index("label_broad_inauthentic")
             self.status_col.create_index("label_category")
+            self.status_col.create_index("status_change_count")
+            self.status_col.create_index("ever_strict_takedown")
+            self.status_col.create_index("ever_broad_inauthentic")
+            self.status_col.create_index("ever_churn")
         except Exception as e:
             print(f"[MongoStorage] Note on index creation: {e}")
 
@@ -289,22 +296,129 @@ class MongoStorage:
             return bwe.details.get("nUpserted", 0)
 
     def save_status_checks(self, records: List[AccountStatusRecord], **kwargs) -> int:
-        """Upsert longitudinal status checks (1 record per account per calendar day)."""
+        """Update or insert canonical status checks (strictly 1 document per account).
+        
+        Only writes transition entries to the transitions array if status, category,
+        or labels actually change. If unchanged, updates last_checked_at and increments check_count.
+        """
         if not records:
             return 0
 
-        operations = []
-        for r in records:
-            doc = r.model_dump()
-            c_date = doc.get("check_date") or (doc.get("checked_at") or "")[:10]
-            doc["check_date"] = c_date
-            operations.append(
-                UpdateOne(
-                    {"did": r.did, "check_date": c_date},
-                    {"$set": doc},
-                    upsert=True,
-                )
+        batch_dids = [r.did for r in records]
+        existing_map = {
+            doc["did"]: doc
+            for doc in self.status_col.find(
+                {"did": {"$in": batch_dids}},
+                {
+                    "did": 1,
+                    "handle": 1,
+                    "status": 1,
+                    "label_category": 1,
+                    "label_values": 1,
+                    "check_count": 1,
+                    "status_change_count": 1,
+                    "ever_strict_takedown": 1,
+                    "ever_broad_inauthentic": 1,
+                    "ever_churn": 1,
+                },
             )
+        }
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        operations = []
+
+        for r in records:
+            probe_time = r.last_checked_at or r.checked_at or now_iso
+            probe_date = probe_time[:10]
+
+            if r.did not in existing_map:
+                # New account: insert canonical profile
+                doc = r.model_dump()
+                doc["first_checked_at"] = doc.get("first_checked_at") or probe_time
+                doc["last_checked_at"] = probe_time
+                doc["check_count"] = 1
+                doc["status_change_count"] = 0
+                doc["last_status_change_at"] = None
+                doc["initial_status"] = r.status
+                doc["initial_category"] = r.label_category
+                doc["is_currently_active"] = (r.status == "ACTIVE")
+                doc["ever_strict_takedown"] = bool(r.label_strict_takedown)
+                doc["ever_broad_inauthentic"] = bool(r.label_broad_inauthentic)
+                doc["ever_churn"] = bool(r.label_churn)
+                doc["transitions"] = []
+                doc.pop("checked_at", None)
+                doc.pop("check_date", None)
+                operations.append(UpdateOne({"did": r.did}, {"$set": doc}, upsert=True))
+            else:
+                existing = existing_map[r.did]
+                st_changed = (r.status != existing.get("status"))
+                cat_changed = (r.label_category != existing.get("label_category"))
+                lbl_changed = (set(r.label_values or []) != set(existing.get("label_values") or []))
+
+                if st_changed or cat_changed or lbl_changed:
+                    # Account changed status or moderation labels: record transition
+                    transition_entry = {
+                        "from_status": existing.get("status"),
+                        "to_status": r.status,
+                        "from_category": existing.get("label_category"),
+                        "to_category": r.label_category,
+                        "timestamp": probe_time,
+                        "date": probe_date,
+                        "labels": r.label_values or [],
+                        "error_name": r.error_name,
+                    }
+                    updated_fields = {
+                        "status": r.status,
+                        "status_code": r.status_code,
+                        "error_name": r.error_name,
+                        "error_message": r.error_message,
+                        "raw_error": r.raw_error or {},
+                        "raw_labels": r.raw_labels or [],
+                        "label_values": r.label_values or [],
+                        "label_strict_takedown": bool(r.label_strict_takedown),
+                        "label_broad_inauthentic": bool(r.label_broad_inauthentic),
+                        "label_churn": bool(r.label_churn),
+                        "label_category": r.label_category,
+                        "last_checked_at": probe_time,
+                        "last_status_change_at": probe_time,
+                        "is_currently_active": (r.status == "ACTIVE"),
+                    }
+                    if r.handle and not existing.get("handle"):
+                        updated_fields["handle"] = r.handle
+                    if r.label_strict_takedown:
+                        updated_fields["ever_strict_takedown"] = True
+                    if r.label_broad_inauthentic:
+                        updated_fields["ever_broad_inauthentic"] = True
+                    if r.label_churn:
+                        updated_fields["ever_churn"] = True
+
+                    operations.append(
+                        UpdateOne(
+                            {"did": r.did},
+                            {
+                                "$set": updated_fields,
+                                "$inc": {"check_count": 1, "status_change_count": 1},
+                                "$push": {"transitions": transition_entry},
+                            },
+                        )
+                    )
+                else:
+                    # Unchanged: only update timestamp and increment check count
+                    update_set = {"last_checked_at": probe_time}
+                    if r.handle and not existing.get("handle"):
+                        update_set["handle"] = r.handle
+                    operations.append(
+                        UpdateOne(
+                            {"did": r.did},
+                            {
+                                "$set": update_set,
+                                "$inc": {"check_count": 1},
+                            },
+                        )
+                    )
+
+        if not operations:
+            return 0
 
         try:
             res = self.status_col.bulk_write(operations, ordered=False)

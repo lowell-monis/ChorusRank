@@ -180,6 +180,7 @@ class LongitudinalRechecker:
                     label_category=clf["label_category"],
                     checked_at=now_iso,
                     check_date=check_date,
+                    last_checked_at=now_iso,
                 )
 
             # Capture complete error payload (e.g. AccountTakedown, AccountDeactivated)
@@ -216,6 +217,7 @@ class LongitudinalRechecker:
                 label_category=clf["label_category"],
                 checked_at=now_iso,
                 check_date=check_date,
+                last_checked_at=now_iso,
             )
 
         except requests.RequestException as e:
@@ -233,6 +235,7 @@ class LongitudinalRechecker:
                 label_category="UNKNOWN",
                 checked_at=now_iso,
                 check_date=check_date,
+                last_checked_at=now_iso,
             )
 
     def run_daily_recheck(self, sample_limit: Optional[int] = None) -> List[AccountStatusRecord]:
