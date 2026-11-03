@@ -136,7 +136,7 @@ class LongitudinalRechecker:
         self,
         base_url: str = "https://api.bsky.app/xrpc",
         storage=None,
-        delay_sec: float = 0.1,
+        delay_sec: float = 0.02,
     ):
         self.base_url = base_url.rstrip("/")
         self.storage = storage or get_storage()

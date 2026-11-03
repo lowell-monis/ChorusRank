@@ -12,6 +12,7 @@ permissions:
 jobs:
   longitudinal-recheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
 
     steps:
       - name: Check out repository

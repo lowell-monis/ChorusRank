@@ -15,6 +15,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Probe accounts and refresh post metrics/deletions")
     parser.add_argument("--account-limit", type=int, default=None, help="Max accounts to probe")
     parser.add_argument("--post-limit", type=int, default=None, help="Max posts to refresh")
+    parser.add_argument("--delay-sec", type=float, default=0.02, help="Delay in seconds between API requests (default: 0.02)")
     args = parser.parse_args()
 
     storage = get_storage()
@@ -34,7 +35,7 @@ def main() -> None:
         print("=" * 70 + "\n")
         sys.exit(1)
 
-    rechecker = LongitudinalRechecker(storage=storage)
+    rechecker = LongitudinalRechecker(storage=storage, delay_sec=args.delay_sec)
 
     print("\n--- [1/2] Checking Account Longitudinal Status ---")
     rechecker.run_daily_recheck(sample_limit=args.account_limit)
